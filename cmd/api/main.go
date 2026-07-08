@@ -1,18 +1,38 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func main() {
 
-	customerRepository := repositories.NewMemoryCustomerRepository()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = mongoClient.Ping(ctx, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	database := mongoClient.Database("go_showcase")
+
+	customerRepository := repositories.NewMongoCustomerRepository(database)
+
 	customerService := services.NewCustomerService(customerRepository)
 	customerHandler := handlers.NewCustomerHandler(customerService)
 
