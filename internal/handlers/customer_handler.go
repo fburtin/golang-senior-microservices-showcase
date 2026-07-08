@@ -6,16 +6,16 @@ import (
 	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/domain"
-	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
 )
 
 type CustomerHandler struct {
-	repository repositories.CustomerRepository
+	service *services.CustomerService
 }
 
-func NewCustomerHandler(repository repositories.CustomerRepository) *CustomerHandler {
+func NewCustomerHandler(service *services.CustomerService) *CustomerHandler {
 	return &CustomerHandler{
-		repository: repository,
+		service: service,
 	}
 }
 
@@ -35,7 +35,7 @@ func (h *CustomerHandler) HandleCustomers(w http.ResponseWriter, r *http.Request
 }
 
 func (h *CustomerHandler) getCustomers(w http.ResponseWriter, r *http.Request) {
-	customers := h.repository.GetAll()
+	customers := h.service.GetAll()
 	writeJSON(w, http.StatusOK, customers)
 }
 
@@ -52,7 +52,7 @@ func (h *CustomerHandler) createCustomer(w http.ResponseWriter, r *http.Request)
 
 	customer.ID = time.Now().Format("20060102150405")
 
-	err = h.repository.Create(customer)
+	err = h.service.Create(customer)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "could not create customer",

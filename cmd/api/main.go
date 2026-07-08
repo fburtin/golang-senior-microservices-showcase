@@ -7,11 +7,14 @@ import (
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
 )
 
 func main() {
+
 	customerRepository := repositories.NewMemoryCustomerRepository()
-	customerHandler := handlers.NewCustomerHandler(customerRepository)
+	customerService := services.NewCustomerService(customerRepository)
+	customerHandler := handlers.NewCustomerHandler(customerService)
 
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/customers", customerHandler.HandleCustomers)
