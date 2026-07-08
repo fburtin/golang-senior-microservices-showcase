@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"time"
 
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/config"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
@@ -16,10 +16,12 @@ import (
 
 func main() {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	cfg := config.Load()
+
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.MongoTimeout)
 	defer cancel()
 
-	mongoClient, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,7 +31,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	database := mongoClient.Database("go_showcase")
+	database := mongoClient.Database(cfg.MongoDatabase)
 
 	customerRepository := repositories.NewMongoCustomerRepository(database)
 
