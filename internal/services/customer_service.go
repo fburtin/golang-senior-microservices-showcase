@@ -30,3 +30,7 @@ func (s *CustomerService) Create(customer domain.Customer) error {
 	customer.CreatedAt = time.Now()
 	return s.repository.Create(customer)
 }
+
+func (s *CustomerService) Delete(id string) error {
+	return s.repository.Delete(id)
+}

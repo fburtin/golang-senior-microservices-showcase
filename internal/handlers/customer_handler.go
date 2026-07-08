@@ -81,8 +81,20 @@ func (h *CustomerHandler) HandleCustomerByID(w http.ResponseWriter, r *http.Requ
 			})
 			return
 		}
-
 		writeJSON(w, http.StatusOK, customer)
+
+	case http.MethodDelete:
+		err := h.service.Delete(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": "customer not found",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"message": "customer deleted successfully",
+		})
 
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{

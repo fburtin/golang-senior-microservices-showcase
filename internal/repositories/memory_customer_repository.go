@@ -43,3 +43,14 @@ func (r *MemoryCustomerRepository) Create(customer domain.Customer) error {
 	r.customers = append(r.customers, customer)
 	return nil
 }
+
+func (r *MemoryCustomerRepository) Delete(id string) error {
+	for index, customer := range r.customers {
+		if customer.ID == id {
+			r.customers = append(r.customers[:index], r.customers[index+1:]...)
+			return nil
+		}
+	}
+
+	return errors.New("customer not found")
+}
