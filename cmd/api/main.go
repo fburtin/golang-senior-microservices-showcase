@@ -18,6 +18,7 @@ func main() {
 
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/customers", customerHandler.HandleCustomers)
+	http.HandleFunc("/customers/{id}", customerHandler.HandleCustomerByID)
 
 	log.Println("Server started at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))

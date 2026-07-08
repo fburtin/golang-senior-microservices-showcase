@@ -68,3 +68,25 @@ func writeJSON(w http.ResponseWriter, statusCode int, value any) {
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(value)
 }
+
+func (h *CustomerHandler) HandleCustomerByID(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	switch r.Method {
+	case http.MethodGet:
+		customer, err := h.service.GetByID(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": "customer not found",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, customer)
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error": "method not allowed",
+		})
+	}
+}

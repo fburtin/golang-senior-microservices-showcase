@@ -17,6 +17,10 @@ func NewCustomerService(repository repositories.CustomerRepository) *CustomerSer
 	}
 }
 
+func (s *CustomerService) GetByID(id string) (*domain.Customer, error) {
+	return s.repository.GetByID(id)
+}
+
 func (s *CustomerService) GetAll() []domain.Customer {
 	return s.repository.GetAll()
 }
@@ -24,6 +28,5 @@ func (s *CustomerService) GetAll() []domain.Customer {
 func (s *CustomerService) Create(customer domain.Customer) error {
 	customer.ID = time.Now().Format("20060102150405")
 	customer.CreatedAt = time.Now()
-
 	return s.repository.Create(customer)
 }
