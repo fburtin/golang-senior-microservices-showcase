@@ -1,0 +1,136 @@
+openapi: 3.0.3
+info:
+  title: Go Senior Microservices Showcase API
+  version: 1.0.0
+  description: REST API built with Go, MongoDB, Docker, Clean Architecture, middleware, validation, and CI.
+
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: API is running
+
+  /customers:
+    get:
+      summary: Get all customers
+      responses:
+        "200":
+          description: List of customers
+
+    post:
+      summary: Create customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerRequest"
+      responses:
+        "201":
+          description: Customer created
+        "400":
+          description: Invalid request
+
+  /customers/{id}:
+    get:
+      summary: Get customer by ID
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+      responses:
+        "200":
+          description: Customer found
+        "404":
+          description: Customer not found
+
+    put:
+      summary: Update customer
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomerRequest"
+      responses:
+        "200":
+          description: Customer updated
+        "400":
+          description: Invalid request
+        "404":
+          description: Customer not found
+
+    delete:
+      summary: Delete customer
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+      responses:
+        "200":
+          description: Customer deleted
+        "404":
+          description: Customer not found
+
+components:
+  parameters:
+    CustomerId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: "20260708190045"
+
+  schemas:
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateCustomerRequest:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - email
+      properties:
+        firstName:
+          type: string
+          example: Francisco
+        lastName:
+          type: string
+          example: Burtin
+        email:
+          type: string
+          example: francisco@example.com
+
+    UpdateCustomerRequest:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - email
+      properties:
+        firstName:
+          type: string
+          example: Francisco
+        lastName:
+          type: string
+          example: Burtin
+        email:
+          type: string
+          example: francisco.burtin@example.com

@@ -5,16 +5,26 @@ import (
 	"log/slog"
 	"net/http"
 
+	httpSwagger "github.com/swaggo/http-swagger"
+
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/middleware"
+
+	_ "github.com/fburtin/golang-senior-microservices-showcase/docs"
 )
 
 func NewRouter(customerHandler *handlers.CustomerHandler, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/customers", customerHandler.HandleCustomers)
-	mux.HandleFunc("/customers/{id}", customerHandler.HandleCustomerByID)
+	mux.HandleFunc("GET /customers", customerHandler.GetCustomers)
+	mux.HandleFunc("POST /customers", customerHandler.CreateCustomer)
+	mux.HandleFunc("GET /customers/{id}", customerHandler.GetCustomerByID)
+	mux.HandleFunc("PUT /customers/{id}", customerHandler.UpdateCustomer)
+	mux.HandleFunc("DELETE /customers/{id}", customerHandler.DeleteCustomer)
+
+	// Swagger UI
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	return middleware.RequestID(
 		middleware.Recovery(
