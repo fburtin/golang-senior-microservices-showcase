@@ -8,5 +8,6 @@ type CustomerRepository interface {
 	GetAll() []domain.Customer
 	GetByID(id string) (*domain.Customer, error)
 	Create(customer domain.Customer) error
+	Update(id string, customer domain.Customer) error
 	Delete(id string) error
 }

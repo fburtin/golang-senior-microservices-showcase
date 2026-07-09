@@ -44,6 +44,15 @@ func (s *CustomerService) Delete(id string) error {
 	return s.repository.Delete(id)
 }
 
+func (s *CustomerService) Update(id string, customer domain.Customer) error {
+	err := validateCustomer(customer)
+	if err != nil {
+		return err
+	}
+
+	return s.repository.Update(id, customer)
+}
+
 func validateCustomer(customer domain.Customer) error {
 	if strings.TrimSpace(customer.FirstName) == "" {
 		return errors.New("firstName is required")

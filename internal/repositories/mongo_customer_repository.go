@@ -60,6 +60,30 @@ func (r *MongoCustomerRepository) Create(customer domain.Customer) error {
 	return err
 }
 
+func (r *MongoCustomerRepository) Update(id string, customer domain.Customer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.M{
+		"$set": bson.M{
+			"firstName": customer.FirstName,
+			"lastName":  customer.LastName,
+			"email":     customer.Email,
+		},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.M{"id": id}, update)
+	if err != nil {
+		return err
+	}
+
+	if result.MatchedCount == 0 {
+		return errors.New("customer not found")
+	}
+
+	return nil
+}
+
 func (r *MongoCustomerRepository) Delete(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -96,6 +96,35 @@ func (h *CustomerHandler) HandleCustomerByID(w http.ResponseWriter, r *http.Requ
 			"message": "customer deleted successfully",
 		})
 
+	case http.MethodPut:
+		var customer domain.Customer
+
+		err := json.NewDecoder(r.Body).Decode(&customer)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid request body",
+			})
+			return
+		}
+
+		err = h.service.Update(id, customer)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		updatedCustomer, err := h.service.GetByID(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error": "customer not found",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, updatedCustomer)
+
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
 			"error": "method not allowed",
