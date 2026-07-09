@@ -9,6 +9,7 @@ import (
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/config"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/logger"
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/messaging"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
 
@@ -28,8 +29,13 @@ func New() *App {
 
 	database := connectMongo(cfg, appLogger)
 
+	customerProducer := messaging.NewProducer(
+		cfg.KafkaBroker,
+		cfg.KafkaCustomerTopic,
+	)
+
 	customerRepository := repositories.NewMongoCustomerRepository(database)
-	customerService := services.NewCustomerService(customerRepository)
+	customerService := services.NewCustomerService(customerRepository, customerProducer)
 	customerHandler := handlers.NewCustomerHandler(customerService)
 
 	router := NewRouter(customerHandler, appLogger)

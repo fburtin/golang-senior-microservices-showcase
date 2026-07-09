@@ -1,37 +1,63 @@
-version: "3.9"
-
 services:
   mongo:
     image: mongo:7
     container_name: go-showcase-mongo
-
     ports:
       - "27017:27017"
-
     environment:
       MONGO_INITDB_DATABASE: go_showcase
-
     volumes:
       - mongo-data:/data/db
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: go-showcase-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@go-showcase-kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://go-showcase-kafka:29092,CONTROLLER://go-showcase-kafka:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://go-showcase-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: go-showcase-kafka-ui
+    ports:
+      - "8082:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: go-showcase-kafka:29092
+    depends_on:
+      - kafka
 
   api:
     build:
       context: ..
       dockerfile: Dockerfile
-
     container_name: go-showcase-api
-
     ports:
       - "8080:8080"
-
     environment:
       PORT: "8080"
       MONGO_URI: "mongodb://mongo:27017"
       MONGO_DATABASE: "go_showcase"
       MONGO_TIMEOUT_SECONDS: "10"
-
+      KAFKA_BROKER: "go-showcase-kafka:29092"
+      KAFKA_CUSTOMER_TOPIC: "customers.events"
     depends_on:
       - mongo
+      - kafka
 
 volumes:
   mongo-data:

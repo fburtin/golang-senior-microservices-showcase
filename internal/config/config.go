@@ -7,10 +7,12 @@ import (
 )
 
 type Config struct {
-	Port          string
-	MongoURI      string
-	MongoDatabase string
-	MongoTimeout  time.Duration
+	Port               string
+	MongoURI           string
+	MongoDatabase      string
+	MongoTimeout       time.Duration
+	KafkaBroker        string
+	KafkaCustomerTopic string
 }
 
 func Load() Config {
@@ -20,10 +22,12 @@ func Load() Config {
 	}
 
 	return Config{
-		Port:          getEnv("PORT", "8080"),
-		MongoURI:      getEnv("MONGO_URI", "mongodb://localhost:27017"),
-		MongoDatabase: getEnv("MONGO_DATABASE", "go_showcase"),
-		MongoTimeout:  time.Duration(timeoutSeconds) * time.Second,
+		Port:               getEnv("PORT", "8080"),
+		MongoURI:           getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		MongoDatabase:      getEnv("MONGO_DATABASE", "go_showcase"),
+		MongoTimeout:       time.Duration(timeoutSeconds) * time.Second,
+		KafkaBroker:        getEnv("KAFKA_BROKER", "localhost:9092"),
+		KafkaCustomerTopic: getEnv("KAFKA_CUSTOMER_TOPIC", "customers.events"),
 	}
 }
 

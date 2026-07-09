@@ -1,21 +1,32 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/domain"
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/messaging"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
 )
 
-type CustomerService struct {
-	repository repositories.CustomerRepository
+type CustomerEventProducer interface {
+	PublishCustomerCreated(
+		ctx context.Context,
+		event messaging.CustomerCreatedEvent,
+	) error
 }
 
-func NewCustomerService(repository repositories.CustomerRepository) *CustomerService {
+type CustomerService struct {
+	repository repositories.CustomerRepository
+	producer   CustomerEventProducer
+}
+
+func NewCustomerService(repository repositories.CustomerRepository, producer CustomerEventProducer) *CustomerService {
 	return &CustomerService{
 		repository: repository,
+		producer:   producer,
 	}
 }
 
@@ -27,7 +38,7 @@ func (s *CustomerService) GetAll() []domain.Customer {
 	return s.repository.GetAll()
 }
 
-func (s *CustomerService) Create(customer domain.Customer) (domain.Customer, error) {
+func (s *CustomerService) Create(ctx context.Context, customer domain.Customer) (domain.Customer, error) {
 	err := validateCustomer(customer)
 	if err != nil {
 		return domain.Customer{}, err
@@ -37,6 +48,26 @@ func (s *CustomerService) Create(customer domain.Customer) (domain.Customer, err
 	customer.CreatedAt = time.Now()
 
 	err = s.repository.Create(customer)
+
+	if err != nil {
+		return domain.Customer{}, err
+	}
+
+	// publish Kafka event here
+	event := messaging.CustomerCreatedEvent{
+		EventType: "customer.created",
+		ID:        customer.ID,
+		FirstName: customer.FirstName,
+		LastName:  customer.LastName,
+		Email:     customer.Email,
+		CreatedAt: customer.CreatedAt,
+	}
+
+	err = s.producer.PublishCustomerCreated(ctx, event)
+	if err != nil {
+		return domain.Customer{}, err
+	}
+
 	return customer, err
 }
 

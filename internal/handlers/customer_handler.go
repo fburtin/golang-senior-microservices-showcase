@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -65,7 +66,7 @@ func (h *CustomerHandler) CreateCustomer(w http.ResponseWriter, r *http.Request)
 		CreatedAt: time.Now(),
 	}
 
-	createdCustomer, err := h.service.Create(customer)
+	createdCustomer, err := h.service.Create(context.Background(), customer)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": err.Error(),
