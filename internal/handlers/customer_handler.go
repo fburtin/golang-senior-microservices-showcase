@@ -52,15 +52,15 @@ func (h *CustomerHandler) createCustomer(w http.ResponseWriter, r *http.Request)
 
 	customer.ID = time.Now().Format("20060102150405")
 
-	err = h.service.Create(customer)
+	createdCustomer, err := h.service.Create(customer)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "could not create customer",
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": err.Error(),
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, customer)
+	writeJSON(w, http.StatusCreated, createdCustomer)
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, value any) {
