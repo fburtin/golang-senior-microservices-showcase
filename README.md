@@ -1,278 +1,34 @@
-# Go Senior Microservices Showcase
+## Development Branches
 
-A production-inspired backend application built in Go demonstrating REST APIs, MongoDB, Apache Kafka, event-driven architecture, Docker, and Swagger.
+The project follows a feature branch workflow.
 
-> This project was created to showcase backend engineering skills commonly required for Senior Go Developer positions.
+### Main Branch
 
----
-
-# Architecture
-
-```
-                    +-----------------------+
-                    |       Client          |
-                    +-----------+-----------+
-                                |
-                          HTTP REST API
-                                |
-                                v
-                     +--------------------+
-                     |    Customer API    |
-                     +--------------------+
-                      |                |
-                      |                |
-                 MongoDB          Kafka Producer
-                      |                |
-                      |                v
-                      |      customers.events
-                      |                |
-                      |                |
-                      +----------------+
-                                       |
-                                       v
-                           Customer Consumer
-```
-
----
-
-# Features
-
-- RESTful API
-- Customer CRUD
-- MongoDB Persistence
-- Apache Kafka Producer
-- Apache Kafka Consumer
-- Event-Driven Architecture
-- Docker Compose Environment
-- Swagger / OpenAPI Documentation
-- Health Check Endpoint
-- Environment-based Configuration
-
----
-
-# Technology Stack
-
-| Technology | Version |
-|------------|---------|
-| Go | 1.26 |
-| MongoDB | 7 |
-| Apache Kafka | 7.7 |
-| Kafka UI | Latest |
-| Docker | Latest |
-| Swagger | swaggo |
-| REST API | net/http |
-
----
-
-# Project Structure
-
-```
-cmd/
-│
-├── api/
-│   └── main.go
-│
-└── customer-consumer/
-    └── main.go
-
-internal/
-
-├── config/
-├── handlers/
-├── messaging/
-│   ├── producer.go
-│   ├── consumer.go
-│   └── customer_events.go
-│
-├── models/
-├── repository/
-└── services/
-
-docker-compose.yml
-```
-
----
-
-# Event Flow
-
-```
-POST /customers
-        │
-        ▼
- Save Customer in MongoDB
-        │
-        ▼
- Publish CustomerCreated Event
-        │
-        ▼
-customers.events
-        │
-        ▼
-Customer Consumer
-        │
-        ▼
-Process Event
-```
-
----
-
-# Kafka Event
-
-Current event:
-
-```
-CustomerCreated
-```
-
-Example payload
-
-```json
-{
-  "eventType": "customer.created",
-  "id": "20260709182921",
-  "firstName": "John",
-  "lastName": "Doe",
-  "email": "john@example.com",
-  "createdAt": "2026-07-09T18:29:21Z"
-}
-```
-
----
-
-# Running the Project
-
-## Start Infrastructure
-
-```bash
-docker compose up -d
-```
-
-This starts:
-
-- MongoDB
-- Apache Kafka
-- Kafka UI
-
----
-
-## Start the API
-
-```bash
-go run ./cmd/api
-```
-
----
-
-## Start the Consumer
-
-```bash
-go run ./cmd/customer-consumer
-```
-
----
-
-# Swagger
-
-```
-http://localhost:8080/swagger/index.html
-```
-
----
-
-# Kafka UI
-
-```
-http://localhost:8082
-```
-
----
-
-# Example Request
-
-```http
-POST /customers
-```
-
-```json
-{
-    "firstName":"John",
-    "lastName":"Doe",
-    "email":"john@example.com"
-}
-```
-
----
-
-# Example Consumer Output
-
-```
-Received message
-
-topic=customers.events
-partition=0
-offset=3
-
-{
-   "eventType":"customer.created",
-   "id":"20260709182921",
-   "firstName":"John",
-   "lastName":"Doe",
-   "email":"john@example.com"
-}
-```
-
----
-
-# Current Architecture
+The `main` branch contains the stable implementation:
 
 - REST API
-- Repository Pattern
-- Service Layer
-- MongoDB
-- Apache Kafka
-- Kafka Producer
-- Kafka Consumer
-- Docker Compose
-- Swagger
+- Clean Architecture
+- MongoDB Repository
+- MongoDB Transactions
+- MongoDB Replica Set
+- Apache Kafka Producer
+- Apache Kafka Consumer
+- Swagger Documentation
+- Unit Tests
 
----
+### Transactional Outbox
 
-# Next Steps
+The Transactional Outbox implementation is currently under active development in the `feature/transactional-outbox` branch.
 
-Planned improvements:
+Current progress:
 
-- Outbox Pattern
-- Dead Letter Queue (DLQ)
-- Retry Policy
-- Multiple Kafka Consumers
-- Structured Logging
-- JWT Authentication
-- Integration Tests
-- Kubernetes Deployment
+- ✅ MongoDB Replica Set
+- ✅ MongoDB Transactions
+- ✅ Kafka Producer
+- ✅ Kafka Consumer
+- 🚧 Atomic persistence of Customer and Outbox Event
+- ⏳ Background Outbox Publisher
+- ⏳ Retry Policy
+- ⏳ Idempotent Event Publishing
 
----
-
-# Author
-
-**Francisco J. Burtin**
-
-Senior Backend Developer
-
-Technologies:
-
-- Go
-- .NET
-- Azure
-- Kafka
-- MongoDB
-- Docker
-
-GitHub
-
-https://github.com/fburtin
-
----
-
-# License
-
-MIT
+The branch demonstrates the incremental implementation of the Transactional Outbox Pattern, a common approach used in distributed systems to guarantee reliable event publication while maintaining database consistency.
