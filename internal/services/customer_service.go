@@ -2,31 +2,25 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/domain"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/messaging"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
+	"github.com/google/uuid"
 )
-
-type CustomerEventProducer interface {
-	PublishCustomerCreated(
-		ctx context.Context,
-		event messaging.CustomerCreatedEvent,
-	) error
-}
 
 type CustomerService struct {
 	repository repositories.CustomerRepository
-	producer   CustomerEventProducer
 }
 
-func NewCustomerService(repository repositories.CustomerRepository, producer CustomerEventProducer) *CustomerService {
+func NewCustomerService(repository repositories.CustomerRepository) *CustomerService {
 	return &CustomerService{
 		repository: repository,
-		producer:   producer,
 	}
 }
 
@@ -38,23 +32,21 @@ func (s *CustomerService) GetAll() []domain.Customer {
 	return s.repository.GetAll()
 }
 
-func (s *CustomerService) Create(ctx context.Context, customer domain.Customer) (domain.Customer, error) {
-	err := validateCustomer(customer)
-	if err != nil {
+func (s *CustomerService) Create(
+	ctx context.Context,
+	customer domain.Customer,
+) (domain.Customer, error) {
+	if err := validateCustomer(customer); err != nil {
 		return domain.Customer{}, err
 	}
 
-	customer.ID = time.Now().Format("20060102150405")
-	customer.CreatedAt = time.Now()
+	now := time.Now().UTC()
 
-	err = s.repository.Create(customer)
+	customer.ID = now.Format("20060102150405")
+	customer.CreatedAt = now
 
-	if err != nil {
-		return domain.Customer{}, err
-	}
-
-	// publish Kafka event here
 	event := messaging.CustomerCreatedEvent{
+		EventID:   generateEventID(),
 		EventType: "customer.created",
 		ID:        customer.ID,
 		FirstName: customer.FirstName,
@@ -63,12 +55,35 @@ func (s *CustomerService) Create(ctx context.Context, customer domain.Customer) 
 		CreatedAt: customer.CreatedAt,
 	}
 
-	err = s.producer.PublishCustomerCreated(ctx, event)
+	payload, err := json.Marshal(event)
 	if err != nil {
+		return domain.Customer{}, fmt.Errorf(
+			"marshal customer-created event: %w",
+			err,
+		)
+	}
+
+	outboxEvent := domain.OutboxEvent{
+		ID:            generateEventID(),
+		EventID:       event.EventID,
+		AggregateID:   customer.ID,
+		AggregateType: "customer",
+		EventType:     event.EventType,
+		Payload:       payload,
+		Status:        domain.OutboxPending,
+		Attempts:      0,
+		CreatedAt:     now,
+	}
+
+	if err := s.repository.CreateWithOutbox(
+		ctx,
+		customer,
+		outboxEvent,
+	); err != nil {
 		return domain.Customer{}, err
 	}
 
-	return customer, err
+	return customer, nil
 }
 
 func (s *CustomerService) Delete(id string) error {
@@ -102,4 +117,8 @@ func validateCustomer(customer domain.Customer) error {
 	}
 
 	return nil
+}
+
+func generateEventID() string {
+	return uuid.NewString()
 }

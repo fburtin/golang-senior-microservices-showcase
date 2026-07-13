@@ -3,6 +3,7 @@ package messaging
 import "time"
 
 type CustomerCreatedEvent struct {
+	EventID   string    `json:"eventId"`
 	EventType string    `json:"eventType"`
 	ID        string    `json:"id"`
 	FirstName string    `json:"firstName"`

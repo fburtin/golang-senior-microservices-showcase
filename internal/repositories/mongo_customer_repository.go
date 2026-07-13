@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/domain"
@@ -11,12 +12,16 @@ import (
 )
 
 type MongoCustomerRepository struct {
-	collection *mongo.Collection
+	client             *mongo.Client
+	customerCollection *mongo.Collection
+	outboxCollection   *mongo.Collection
 }
 
 func NewMongoCustomerRepository(database *mongo.Database) *MongoCustomerRepository {
 	return &MongoCustomerRepository{
-		collection: database.Collection("customers"),
+		client:             database.Client(),
+		customerCollection: database.Collection("customers"),
+		outboxCollection:   database.Collection("outbox_events"),
 	}
 }
 
@@ -24,7 +29,7 @@ func (r *MongoCustomerRepository) GetAll() []domain.Customer {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cursor, err := r.collection.Find(ctx, bson.M{})
+	cursor, err := r.customerCollection.Find(ctx, bson.M{})
 	if err != nil {
 		return []domain.Customer{}
 	}
@@ -44,7 +49,7 @@ func (r *MongoCustomerRepository) GetByID(id string) (*domain.Customer, error) {
 
 	var customer domain.Customer
 
-	err := r.collection.FindOne(ctx, bson.M{"id": id}).Decode(&customer)
+	err := r.customerCollection.FindOne(ctx, bson.M{"id": id}).Decode(&customer)
 	if err != nil {
 		return nil, errors.New("customer not found")
 	}
@@ -52,12 +57,42 @@ func (r *MongoCustomerRepository) GetByID(id string) (*domain.Customer, error) {
 	return &customer, nil
 }
 
-func (r *MongoCustomerRepository) Create(customer domain.Customer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func (r *MongoCustomerRepository) CreateWithOutbox(
+	ctx context.Context,
+	customer domain.Customer,
+	outboxEvent domain.OutboxEvent,
+) error {
+	session, err := r.client.StartSession()
+	if err != nil {
+		return fmt.Errorf("start MongoDB session: %w", err)
+	}
+	defer session.EndSession(ctx)
 
-	_, err := r.collection.InsertOne(ctx, customer)
-	return err
+	_, err = session.WithTransaction(
+		ctx,
+		func(sessionContext context.Context) (any, error) {
+			if _, err := r.customerCollection.InsertOne(
+				sessionContext,
+				customer,
+			); err != nil {
+				return nil, fmt.Errorf("insert customer: %w", err)
+			}
+
+			if _, err := r.outboxCollection.InsertOne(
+				sessionContext,
+				outboxEvent,
+			); err != nil {
+				return nil, fmt.Errorf("insert outbox event: %w", err)
+			}
+
+			return nil, nil
+		},
+	)
+
+	if err != nil {
+		return fmt.Errorf("create customer with outbox: %w", err)
+	}
+	return nil
 }
 
 func (r *MongoCustomerRepository) Update(id string, customer domain.Customer) error {
@@ -72,7 +107,7 @@ func (r *MongoCustomerRepository) Update(id string, customer domain.Customer) er
 		},
 	}
 
-	result, err := r.collection.UpdateOne(ctx, bson.M{"id": id}, update)
+	result, err := r.customerCollection.UpdateOne(ctx, bson.M{"id": id}, update)
 	if err != nil {
 		return err
 	}
@@ -88,7 +123,7 @@ func (r *MongoCustomerRepository) Delete(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := r.collection.DeleteOne(ctx, bson.M{"id": id})
+	result, err := r.customerCollection.DeleteOne(ctx, bson.M{"id": id})
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/config"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
@@ -12,15 +13,17 @@ import (
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/messaging"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/workers"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type App struct {
-	config config.Config
-	logger *slog.Logger
-	router http.Handler
+	config       config.Config
+	logger       *slog.Logger
+	router       http.Handler
+	outboxWorker *workers.OutboxWorker
 }
 
 func New() *App {
@@ -35,24 +38,64 @@ func New() *App {
 	)
 
 	customerRepository := repositories.NewMongoCustomerRepository(database)
-	customerService := services.NewCustomerService(customerRepository, customerProducer)
+	outboxRepository := repositories.NewMongoOutboxRepository(database)
+	customerService := services.NewCustomerService(customerRepository)
 	customerHandler := handlers.NewCustomerHandler(customerService)
+
+	outboxWorker := workers.NewOutboxWorker(
+		outboxRepository,
+		customerProducer,
+		appLogger,
+		5*time.Second,
+	)
 
 	router := NewRouter(customerHandler, appLogger)
 
+	indexContext, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer cancel()
+
+	if err := outboxRepository.CreateIndexes(indexContext); err != nil {
+		appLogger.Error(
+			"failed to create outbox indexes",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	return &App{
-		config: cfg,
-		logger: appLogger,
-		router: router,
+		config:       cfg,
+		logger:       appLogger,
+		router:       router,
+		outboxWorker: outboxWorker,
 	}
 }
 
 func (a *App) Run() {
-	a.logger.Info("HTTP server started", "port", a.config.Port)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	err := http.ListenAndServe(":"+a.config.Port, a.router)
+	go a.outboxWorker.Run(ctx)
+
+	a.logger.Info(
+		"HTTP server started",
+		"port",
+		a.config.Port,
+	)
+
+	err := http.ListenAndServe(
+		":"+a.config.Port,
+		a.router,
+	)
 	if err != nil {
-		a.logger.Error("HTTP server stopped", "error", err)
+		a.logger.Error(
+			"HTTP server stopped",
+			"error",
+			err,
+		)
 		os.Exit(1)
 	}
 }
