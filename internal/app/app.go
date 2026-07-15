@@ -7,7 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/bcra"
+	bcraapi "github.com/fburtin/golang-senior-microservices-showcase/internal/bcra/api"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/config"
+	"github.com/fburtin/golang-senior-microservices-showcase/internal/customerdebt"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/logger"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/messaging"
@@ -41,6 +44,23 @@ func New() *App {
 	outboxRepository := repositories.NewMongoOutboxRepository(database)
 	customerService := services.NewCustomerService(customerRepository)
 	customerHandler := handlers.NewCustomerHandler(customerService)
+	// BCRA customer debt dependencies
+	bcraClient := bcra.NewClient()
+
+	customerDebtRepository :=
+		customerdebt.NewMongoRepository(
+			database.Collection("customer_debts"),
+		)
+
+	customerDebtService := customerdebt.NewService(
+		bcraClient,
+		customerDebtRepository,
+	)
+
+	customerDebtHandler :=
+		bcraapi.NewCustomerDebtHandler(
+			customerDebtService,
+		)
 
 	outboxWorker := workers.NewOutboxWorker(
 		outboxRepository,
@@ -49,7 +69,7 @@ func New() *App {
 		5*time.Second,
 	)
 
-	router := NewRouter(customerHandler, appLogger)
+	router := NewRouter(customerHandler, customerDebtHandler, appLogger)
 
 	indexContext, cancel := context.WithTimeout(
 		context.Background(),
@@ -60,6 +80,15 @@ func New() *App {
 	if err := outboxRepository.CreateIndexes(indexContext); err != nil {
 		appLogger.Error(
 			"failed to create outbox indexes",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	if err := customerDebtRepository.CreateIndexes(indexContext); err != nil {
+		appLogger.Error(
+			"failed to create customer debt indexes",
 			"error",
 			err,
 		)

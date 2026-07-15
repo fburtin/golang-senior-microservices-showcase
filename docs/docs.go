@@ -15,6 +15,60 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/customer-debts/{cuit}": {
+            "get": {
+                "description": "Retrieves debt information from BCRA Central de Deudores and stores successful responses in MongoDB.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "BCRA"
+                ],
+                "summary": "Get customer debt information",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "example": "20292456078",
+                        "description": "CUIT/CUIL/CDI without hyphens",
+                        "name": "cuit",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/bcra.DebtResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/bcra.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/bcra.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/bcra.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/bcra.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/customers": {
             "get": {
                 "produces": [
@@ -210,6 +264,119 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "bcra.DebtEntity": {
+            "type": "object",
+            "properties": {
+                "diasAtrasoPago": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "enRevision": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "entidad": {
+                    "type": "string",
+                    "example": "BANCO DE GALICIA Y BUENOS AIRES S.A."
+                },
+                "fechaSit1": {
+                    "type": "string",
+                    "example": "2006-09-30"
+                },
+                "irrecDisposicionTecnica": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "monto": {
+                    "type": "number",
+                    "example": 1847
+                },
+                "procesoJud": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "recategorizacionOblig": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "refinanciaciones": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "situacion": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "situacionJuridica": {
+                    "type": "boolean",
+                    "example": false
+                }
+            }
+        },
+        "bcra.DebtPeriod": {
+            "type": "object",
+            "properties": {
+                "entidades": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/bcra.DebtEntity"
+                    }
+                },
+                "periodo": {
+                    "type": "string",
+                    "example": "202605"
+                }
+            }
+        },
+        "bcra.DebtResponse": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "$ref": "#/definitions/bcra.DebtResult"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 200
+                }
+            }
+        },
+        "bcra.DebtResult": {
+            "type": "object",
+            "properties": {
+                "denominacion": {
+                    "type": "string",
+                    "example": "PERSONA EJEMPLO"
+                },
+                "identificacion": {
+                    "type": "integer",
+                    "example": 20292456078
+                },
+                "periodos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/bcra.DebtPeriod"
+                    }
+                }
+            }
+        },
+        "bcra.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "errorMessages": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "No se encontró datos para la identificación ingresada."
+                    ]
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                }
+            }
+        },
         "domain.Customer": {
             "type": "object",
             "properties": {

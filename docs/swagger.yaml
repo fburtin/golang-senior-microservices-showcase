@@ -1,4 +1,83 @@
 definitions:
+  bcra.DebtEntity:
+    properties:
+      diasAtrasoPago:
+        example: 0
+        type: integer
+      enRevision:
+        example: false
+        type: boolean
+      entidad:
+        example: BANCO DE GALICIA Y BUENOS AIRES S.A.
+        type: string
+      fechaSit1:
+        example: "2006-09-30"
+        type: string
+      irrecDisposicionTecnica:
+        example: false
+        type: boolean
+      monto:
+        example: 1847
+        type: number
+      procesoJud:
+        example: false
+        type: boolean
+      recategorizacionOblig:
+        example: false
+        type: boolean
+      refinanciaciones:
+        example: false
+        type: boolean
+      situacion:
+        example: 1
+        type: integer
+      situacionJuridica:
+        example: false
+        type: boolean
+    type: object
+  bcra.DebtPeriod:
+    properties:
+      entidades:
+        items:
+          $ref: '#/definitions/bcra.DebtEntity'
+        type: array
+      periodo:
+        example: "202605"
+        type: string
+    type: object
+  bcra.DebtResponse:
+    properties:
+      results:
+        $ref: '#/definitions/bcra.DebtResult'
+      status:
+        example: 200
+        type: integer
+    type: object
+  bcra.DebtResult:
+    properties:
+      denominacion:
+        example: PERSONA EJEMPLO
+        type: string
+      identificacion:
+        example: 20292456078
+        type: integer
+      periodos:
+        items:
+          $ref: '#/definitions/bcra.DebtPeriod'
+        type: array
+    type: object
+  bcra.ErrorResponse:
+    properties:
+      errorMessages:
+        example:
+        - No se encontró datos para la identificación ingresada.
+        items:
+          type: string
+        type: array
+      status:
+        example: 404
+        type: integer
+    type: object
   domain.Customer:
     properties:
       createdAt:
@@ -27,6 +106,43 @@ definitions:
 info:
   contact: {}
 paths:
+  /customer-debts/{cuit}:
+    get:
+      description: Retrieves debt information from BCRA Central de Deudores and stores
+        successful responses in MongoDB.
+      parameters:
+      - description: CUIT/CUIL/CDI without hyphens
+        example: "20292456078"
+        in: path
+        name: cuit
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/bcra.DebtResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/bcra.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/bcra.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/bcra.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/bcra.ErrorResponse'
+      summary: Get customer debt information
+      tags:
+      - BCRA
   /customers:
     get:
       produces:

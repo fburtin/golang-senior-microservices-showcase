@@ -7,13 +7,16 @@ import (
 
 	httpSwagger "github.com/swaggo/http-swagger"
 
+	bcraapi "github.com/fburtin/golang-senior-microservices-showcase/internal/bcra/api"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/handlers"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/middleware"
 
 	_ "github.com/fburtin/golang-senior-microservices-showcase/docs"
 )
 
-func NewRouter(customerHandler *handlers.CustomerHandler, logger *slog.Logger) http.Handler {
+func NewRouter(customerHandler *handlers.CustomerHandler,
+	customerDebtHandler *bcraapi.CustomerDebtHandler,
+	logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", healthHandler)
@@ -22,6 +25,7 @@ func NewRouter(customerHandler *handlers.CustomerHandler, logger *slog.Logger) h
 	mux.HandleFunc("GET /customers/{id}", customerHandler.GetCustomerByID)
 	mux.HandleFunc("PUT /customers/{id}", customerHandler.UpdateCustomer)
 	mux.HandleFunc("DELETE /customers/{id}", customerHandler.DeleteCustomer)
+	mux.HandleFunc("GET /customer-debts/{cuit}", customerDebtHandler.GetCustomerDebt)
 
 	// Swagger UI
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
