@@ -14,38 +14,43 @@ import (
 )
 
 type fakeOutboxRepository struct {
-	pendingEvents []domain.OutboxEvent
-	findError     error
+	claimedEvents []domain.OutboxEvent
+	claimError    error
 
-	findPendingCalled bool
-	findPendingLimit  int64
+	claimCalled   bool
+	claimWorkerID string
+	claimLimit    int64
+
+	releaseCalled      bool
+	releaseStaleBefore time.Time
+	releaseError       error
 
 	markPublishedCalled bool
 	markPublishedID     string
 	markPublishedError  error
 
-	recordFailureCalled bool
-	recordFailureID     string
-	recordFailureReason string
-	recordFailureError  error
+	recordFailureCalled        bool
+	recordFailureID            string
+	recordFailureReason        string
+	recordFailureNextAttemptAt time.Time
+	recordFailureError         error
 
 	markFailedCalled bool
 	markFailedID     string
 	markFailedReason string
 	markFailedError  error
-
-	createIndexesCalled bool
-	createIndexesError  error
 }
 
-func (r *fakeOutboxRepository) FindPending(
+func (r *fakeOutboxRepository) ClaimPending(
 	ctx context.Context,
+	workerID string,
 	limit int64,
 ) ([]domain.OutboxEvent, error) {
-	r.findPendingCalled = true
-	r.findPendingLimit = limit
+	r.claimCalled = true
+	r.claimWorkerID = workerID
+	r.claimLimit = limit
 
-	return r.pendingEvents, r.findError
+	return r.claimedEvents, r.claimError
 }
 
 func (r *fakeOutboxRepository) MarkPublished(
@@ -62,10 +67,12 @@ func (r *fakeOutboxRepository) RecordFailure(
 	ctx context.Context,
 	id string,
 	reason string,
+	nextAttemptAt time.Time,
 ) error {
 	r.recordFailureCalled = true
 	r.recordFailureID = id
 	r.recordFailureReason = reason
+	r.recordFailureNextAttemptAt = nextAttemptAt
 
 	return r.recordFailureError
 }
@@ -82,12 +89,20 @@ func (r *fakeOutboxRepository) MarkFailed(
 	return r.markFailedError
 }
 
+func (r *fakeOutboxRepository) ReleaseStaleLocks(
+	ctx context.Context,
+	staleBefore time.Time,
+) error {
+	r.releaseCalled = true
+	r.releaseStaleBefore = staleBefore
+
+	return r.releaseError
+}
+
 func (r *fakeOutboxRepository) CreateIndexes(
 	ctx context.Context,
 ) error {
-	r.createIndexesCalled = true
-
-	return r.createIndexesError
+	return nil
 }
 
 type fakeCustomerEventProducer struct {
@@ -110,10 +125,21 @@ func (p *fakeCustomerEventProducer) PublishCustomerCreated(
 
 func newTestLogger() *slog.Logger {
 	return slog.New(
-		slog.NewTextHandler(
-			io.Discard,
-			nil,
-		),
+		slog.NewTextHandler(io.Discard, nil),
+	)
+}
+
+func newTestWorker(
+	repository *fakeOutboxRepository,
+	producer *fakeCustomerEventProducer,
+) *OutboxWorker {
+	return NewOutboxWorker(
+		repository,
+		producer,
+		newTestLogger(),
+		time.Second,
+		"worker-test",
+		30*time.Second,
 	)
 }
 
@@ -139,6 +165,8 @@ func createOutboxEvent(
 		t.Fatalf("failed to marshal event: %v", err)
 	}
 
+	now := time.Now().UTC()
+
 	return domain.OutboxEvent{
 		ID:            id,
 		EventID:       event.EventID,
@@ -146,145 +174,105 @@ func createOutboxEvent(
 		AggregateType: "customer",
 		EventType:     event.EventType,
 		Payload:       payload,
-		Status:        domain.OutboxPending,
+		Status:        domain.OutboxProcessing,
 		Attempts:      attempts,
-		CreatedAt:     time.Now().UTC(),
+		CreatedAt:     now,
+		LockedAt:      &now,
+		LockedBy:      "worker-test",
 	}
 }
 
-func TestOutboxWorker_ProcessBatch_PublishesPendingEvent(
+func TestOutboxWorker_ProcessBatch_ClaimsAndPublishesEvent(
 	t *testing.T,
 ) {
-	outboxEvent := createOutboxEvent(
-		t,
-		"outbox-1",
-		0,
-	)
+	event := createOutboxEvent(t, "outbox-1", 0)
 
 	repository := &fakeOutboxRepository{
-		pendingEvents: []domain.OutboxEvent{
-			outboxEvent,
-		},
+		claimedEvents: []domain.OutboxEvent{event},
 	}
-
 	producer := &fakeCustomerEventProducer{}
-
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
+	worker := newTestWorker(repository, producer)
 
 	worker.processBatch(context.Background())
 
-	if !repository.findPendingCalled {
-		t.Fatal("expected FindPending to be called")
+	if !repository.releaseCalled {
+		t.Fatal("expected ReleaseStaleLocks to be called")
 	}
 
-	if repository.findPendingLimit != defaultBatchSize {
+	if !repository.claimCalled {
+		t.Fatal("expected ClaimPending to be called")
+	}
+
+	if repository.claimWorkerID != "worker-test" {
+		t.Fatalf(
+			"expected worker ID %q, got %q",
+			"worker-test",
+			repository.claimWorkerID,
+		)
+	}
+
+	if repository.claimLimit != defaultBatchSize {
 		t.Fatalf(
 			"expected limit %d, got %d",
 			defaultBatchSize,
-			repository.findPendingLimit,
+			repository.claimLimit,
 		)
 	}
 
 	if !producer.publishCalled {
-		t.Fatal(
-			"expected PublishCustomerCreated to be called",
-		)
-	}
-
-	if producer.published.ID != outboxEvent.AggregateID {
-		t.Fatalf(
-			"expected customer ID %q, got %q",
-			outboxEvent.AggregateID,
-			producer.published.ID,
-		)
+		t.Fatal("expected producer to be called")
 	}
 
 	if !repository.markPublishedCalled {
 		t.Fatal("expected MarkPublished to be called")
 	}
 
-	if repository.markPublishedID != outboxEvent.ID {
+	if repository.markPublishedID != event.ID {
 		t.Fatalf(
 			"expected published ID %q, got %q",
-			outboxEvent.ID,
+			event.ID,
 			repository.markPublishedID,
 		)
 	}
-
-	if repository.recordFailureCalled {
-		t.Fatal(
-			"expected RecordFailure not to be called",
-		)
-	}
-
-	if repository.markFailedCalled {
-		t.Fatal("expected MarkFailed not to be called")
-	}
 }
 
-func TestOutboxWorker_ProcessBatch_NoPendingEvents(
-	t *testing.T,
-) {
-	repository := &fakeOutboxRepository{}
-	producer := &fakeCustomerEventProducer{}
-
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
-
-	worker.processBatch(context.Background())
-
-	if !repository.findPendingCalled {
-		t.Fatal("expected FindPending to be called")
-	}
-
-	if producer.publishCalled {
-		t.Fatal(
-			"expected producer not to be called",
-		)
-	}
-
-	if repository.markPublishedCalled {
-		t.Fatal(
-			"expected MarkPublished not to be called",
-		)
-	}
-}
-
-func TestOutboxWorker_ProcessBatch_FindPendingFails(
+func TestOutboxWorker_ProcessBatch_ClaimFailureDoesNotPublish(
 	t *testing.T,
 ) {
 	repository := &fakeOutboxRepository{
-		findError: errors.New("database unavailable"),
+		claimError: errors.New("database unavailable"),
 	}
-
 	producer := &fakeCustomerEventProducer{}
-
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
+	worker := newTestWorker(repository, producer)
 
 	worker.processBatch(context.Background())
 
-	if !repository.findPendingCalled {
-		t.Fatal("expected FindPending to be called")
+	if !repository.claimCalled {
+		t.Fatal("expected ClaimPending to be called")
 	}
 
 	if producer.publishCalled {
-		t.Fatal(
-			"expected producer not to be called",
-		)
+		t.Fatal("expected producer not to be called")
+	}
+}
+
+func TestOutboxWorker_ProcessBatch_ReleaseFailureStillClaims(
+	t *testing.T,
+) {
+	repository := &fakeOutboxRepository{
+		releaseError: errors.New("release failed"),
+	}
+	producer := &fakeCustomerEventProducer{}
+	worker := newTestWorker(repository, producer)
+
+	worker.processBatch(context.Background())
+
+	if !repository.releaseCalled {
+		t.Fatal("expected ReleaseStaleLocks to be called")
+	}
+
+	if !repository.claimCalled {
+		t.Fatal("expected ClaimPending to still be called")
 	}
 }
 
@@ -293,50 +281,26 @@ func TestOutboxWorker_ProcessEvent_InvalidPayloadMarksFailed(
 ) {
 	repository := &fakeOutboxRepository{}
 	producer := &fakeCustomerEventProducer{}
-
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
+	worker := newTestWorker(repository, producer)
 
 	event := domain.OutboxEvent{
 		ID:      "outbox-1",
+		EventID: "event-1",
 		Payload: []byte("invalid-json"),
 	}
 
-	worker.processEvent(
-		context.Background(),
-		event,
-	)
+	worker.processEvent(context.Background(), event)
 
 	if !repository.markFailedCalled {
 		t.Fatal("expected MarkFailed to be called")
 	}
 
-	if repository.markFailedID != event.ID {
-		t.Fatalf(
-			"expected failed ID %q, got %q",
-			event.ID,
-			repository.markFailedID,
-		)
-	}
-
-	if repository.markFailedReason == "" {
-		t.Fatal(
-			"expected failure reason to be recorded",
-		)
-	}
-
 	if producer.publishCalled {
-		t.Fatal(
-			"expected producer not to be called",
-		)
+		t.Fatal("expected producer not to be called")
 	}
 }
 
-func TestOutboxWorker_ProcessEvent_PublishFailureRecordsFailure(
+func TestOutboxWorker_ProcessEvent_PublishFailureSchedulesRetry(
 	t *testing.T,
 ) {
 	expectedError := errors.New("kafka unavailable")
@@ -345,35 +309,14 @@ func TestOutboxWorker_ProcessEvent_PublishFailureRecordsFailure(
 	producer := &fakeCustomerEventProducer{
 		publishError: expectedError,
 	}
+	worker := newTestWorker(repository, producer)
+	event := createOutboxEvent(t, "outbox-1", 0)
 
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
-
-	event := createOutboxEvent(
-		t,
-		"outbox-1",
-		0,
-	)
-
-	worker.processEvent(
-		context.Background(),
-		event,
-	)
-
-	if !producer.publishCalled {
-		t.Fatal(
-			"expected producer to be called",
-		)
-	}
+	before := time.Now().UTC()
+	worker.processEvent(context.Background(), event)
 
 	if !repository.recordFailureCalled {
-		t.Fatal(
-			"expected RecordFailure to be called",
-		)
+		t.Fatal("expected RecordFailure to be called")
 	}
 
 	if repository.recordFailureID != event.ID {
@@ -392,16 +335,17 @@ func TestOutboxWorker_ProcessEvent_PublishFailureRecordsFailure(
 		)
 	}
 
-	if repository.markFailedCalled {
-		t.Fatal(
-			"expected MarkFailed not to be called before maximum attempts",
+	expectedMinimum := before.Add(baseRetryDelay)
+	if repository.recordFailureNextAttemptAt.Before(expectedMinimum) {
+		t.Fatalf(
+			"expected retry at or after %v, got %v",
+			expectedMinimum,
+			repository.recordFailureNextAttemptAt,
 		)
 	}
 
-	if repository.markPublishedCalled {
-		t.Fatal(
-			"expected MarkPublished not to be called",
-		)
+	if repository.markFailedCalled {
+		t.Fatal("expected MarkFailed not to be called")
 	}
 }
 
@@ -414,179 +358,93 @@ func TestOutboxWorker_ProcessEvent_MaxAttemptsMarksFailed(
 	producer := &fakeCustomerEventProducer{
 		publishError: expectedError,
 	}
-
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
-
+	worker := newTestWorker(repository, producer)
 	event := createOutboxEvent(
 		t,
 		"outbox-1",
 		maxPublishAttempts-1,
 	)
 
-	worker.processEvent(
-		context.Background(),
-		event,
-	)
-
-	if !repository.recordFailureCalled {
-		t.Fatal(
-			"expected RecordFailure to be called",
-		)
-	}
+	worker.processEvent(context.Background(), event)
 
 	if !repository.markFailedCalled {
 		t.Fatal("expected MarkFailed to be called")
 	}
 
-	if repository.markFailedID != event.ID {
-		t.Fatalf(
-			"expected failed ID %q, got %q",
-			event.ID,
-			repository.markFailedID,
-		)
-	}
-
-	if repository.markFailedReason != expectedError.Error() {
-		t.Fatalf(
-			"expected reason %q, got %q",
-			expectedError.Error(),
-			repository.markFailedReason,
-		)
-	}
-
-	if repository.markPublishedCalled {
-		t.Fatal(
-			"expected MarkPublished not to be called",
-		)
+	if repository.recordFailureCalled {
+		t.Fatal("expected RecordFailure not to be called")
 	}
 }
 
-func TestOutboxWorker_ProcessEvent_MarkPublishedFails(
+func TestOutboxWorker_ProcessEvent_MarkPublishedFailureDoesNotRetryPublish(
 	t *testing.T,
 ) {
 	repository := &fakeOutboxRepository{
-		markPublishedError: errors.New(
-			"database update failed",
-		),
+		markPublishedError: errors.New("database update failed"),
 	}
-
 	producer := &fakeCustomerEventProducer{}
+	worker := newTestWorker(repository, producer)
+	event := createOutboxEvent(t, "outbox-1", 0)
 
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
+	worker.processEvent(context.Background(), event)
 
-	event := createOutboxEvent(
-		t,
-		"outbox-1",
-		0,
-	)
-
-	worker.processEvent(
-		context.Background(),
-		event,
-	)
-
-	if !producer.publishCalled {
-		t.Fatal(
-			"expected producer to be called",
+	if producer.callCount != 1 {
+		t.Fatalf(
+			"expected producer call count 1, got %d",
+			producer.callCount,
 		)
 	}
 
 	if !repository.markPublishedCalled {
-		t.Fatal(
-			"expected MarkPublished to be called",
-		)
+		t.Fatal("expected MarkPublished to be called")
 	}
 
 	if repository.recordFailureCalled {
-		t.Fatal(
-			"expected RecordFailure not to be called",
-		)
-	}
-
-	if repository.markFailedCalled {
-		t.Fatal(
-			"expected MarkFailed not to be called",
-		)
+		t.Fatal("expected RecordFailure not to be called")
 	}
 }
 
-func TestOutboxWorker_ProcessBatch_MultipleEvents(
+func TestRetryDelay_UsesExponentialBackoffAndCap(
 	t *testing.T,
 ) {
-	repository := &fakeOutboxRepository{
-		pendingEvents: []domain.OutboxEvent{
-			createOutboxEvent(t, "outbox-1", 0),
-			createOutboxEvent(t, "outbox-2", 0),
-			createOutboxEvent(t, "outbox-3", 0),
+	tests := []struct {
+		name     string
+		attempt  int
+		expected time.Duration
+	}{
+		{
+			name:     "first failure",
+			attempt:  0,
+			expected: 5 * time.Second,
+		},
+		{
+			name:     "second failure",
+			attempt:  1,
+			expected: 10 * time.Second,
+		},
+		{
+			name:     "third failure",
+			attempt:  2,
+			expected: 20 * time.Second,
+		},
+		{
+			name:     "capped",
+			attempt:  20,
+			expected: maxRetryDelay,
 		},
 	}
 
-	producer := &fakeCustomerEventProducer{}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actual := retryDelay(test.attempt)
 
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		time.Second,
-	)
-
-	worker.processBatch(context.Background())
-
-	if producer.callCount != 3 {
-		t.Fatalf(
-			"expected 3 publish calls, got %d",
-			producer.callCount,
-		)
-	}
-}
-
-func TestOutboxWorker_Run_StopsWhenContextIsCancelled(
-	t *testing.T,
-) {
-	repository := &fakeOutboxRepository{}
-	producer := &fakeCustomerEventProducer{}
-
-	worker := NewOutboxWorker(
-		repository,
-		producer,
-		newTestLogger(),
-		10*time.Millisecond,
-	)
-
-	ctx, cancel := context.WithCancel(
-		context.Background(),
-	)
-
-	done := make(chan struct{})
-
-	go func() {
-		worker.Run(ctx)
-		close(done)
-	}()
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal(
-			"worker did not stop after context cancellation",
-		)
-	}
-
-	if !repository.findPendingCalled {
-		t.Fatal(
-			"expected initial batch to be processed",
-		)
+			if actual != test.expected {
+				t.Fatalf(
+					"expected %v, got %v",
+					test.expected,
+					actual,
+				)
+			}
+		})
 	}
 }

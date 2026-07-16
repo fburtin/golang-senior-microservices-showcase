@@ -5,9 +5,10 @@ import "time"
 type OutboxStatus string
 
 const (
-	OutboxPending   OutboxStatus = "PENDING"
-	OutboxPublished OutboxStatus = "PUBLISHED"
-	OutboxFailed    OutboxStatus = "FAILED"
+	OutboxPending    OutboxStatus = "PENDING"
+	OutboxProcessing OutboxStatus = "PROCESSING"
+	OutboxPublished  OutboxStatus = "PUBLISHED"
+	OutboxFailed     OutboxStatus = "FAILED"
 )
 
 type OutboxEvent struct {
@@ -21,5 +22,8 @@ type OutboxEvent struct {
 	Attempts      int          `bson:"attempts" json:"attempts"`
 	CreatedAt     time.Time    `bson:"createdAt" json:"createdAt"`
 	PublishedAt   *time.Time   `bson:"publishedAt,omitempty" json:"publishedAt,omitempty"`
+	NextAttemptAt *time.Time   `bson:"nextAttemptAt,omitempty" json:"nextAttemptAt,omitempty"`
+	LockedAt      *time.Time   `bson:"lockedAt,omitempty" json:"lockedAt,omitempty"`
+	LockedBy      string       `bson:"lockedBy,omitempty" json:"lockedBy,omitempty"`
 	LastError     string       `bson:"lastError,omitempty" json:"lastError,omitempty"`
 }

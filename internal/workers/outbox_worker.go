@@ -14,6 +14,8 @@ import (
 const (
 	defaultBatchSize   = int64(50)
 	maxPublishAttempts = 5
+	baseRetryDelay     = 5 * time.Second
+	maxRetryDelay      = 5 * time.Minute
 )
 
 type CustomerEventProducer interface {
@@ -24,10 +26,12 @@ type CustomerEventProducer interface {
 }
 
 type OutboxWorker struct {
-	repository repositories.OutboxRepository
-	producer   CustomerEventProducer
-	logger     *slog.Logger
-	interval   time.Duration
+	repository  repositories.OutboxRepository
+	producer    CustomerEventProducer
+	logger      *slog.Logger
+	interval    time.Duration
+	workerID    string
+	lockTimeout time.Duration
 }
 
 func NewOutboxWorker(
@@ -35,12 +39,16 @@ func NewOutboxWorker(
 	producer CustomerEventProducer,
 	logger *slog.Logger,
 	interval time.Duration,
+	workerID string,
+	lockTimeout time.Duration,
 ) *OutboxWorker {
 	return &OutboxWorker{
-		repository: repository,
-		producer:   producer,
-		logger:     logger,
-		interval:   interval,
+		repository:  repository,
+		producer:    producer,
+		logger:      logger,
+		interval:    interval,
+		workerID:    workerID,
+		lockTimeout: lockTimeout,
 	}
 }
 
@@ -63,13 +71,27 @@ func (w *OutboxWorker) Run(ctx context.Context) {
 }
 
 func (w *OutboxWorker) processBatch(ctx context.Context) {
-	events, err := w.repository.FindPending(
+	staleBefore := time.Now().UTC().Add(-w.lockTimeout)
+
+	if err := w.repository.ReleaseStaleLocks(
 		ctx,
+		staleBefore,
+	); err != nil {
+		w.logger.Error(
+			"failed to release stale outbox locks",
+			"error",
+			err,
+		)
+	}
+
+	events, err := w.repository.ClaimPending(
+		ctx,
+		w.workerID,
 		defaultBatchSize,
 	)
 	if err != nil {
 		w.logger.Error(
-			"failed to load pending outbox events",
+			"failed to claim pending outbox events",
 			"error",
 			err,
 		)
@@ -88,26 +110,34 @@ func (w *OutboxWorker) processEvent(
 	var event messaging.CustomerCreatedEvent
 
 	if err := json.Unmarshal(outboxEvent.Payload, &event); err != nil {
-		_ = w.repository.MarkFailed(
-			ctx,
-			outboxEvent.ID,
-			err.Error(),
-		)
+		w.markFailed(ctx, outboxEvent, err.Error())
 		return
 	}
 
 	if err := w.producer.PublishCustomerCreated(ctx, event); err != nil {
-		_ = w.repository.RecordFailure(
+		nextAttempt := outboxEvent.Attempts + 1
+
+		if nextAttempt >= maxPublishAttempts {
+			w.markFailed(ctx, outboxEvent, err.Error())
+			return
+		}
+
+		nextAttemptAt := time.Now().UTC().Add(
+			retryDelay(outboxEvent.Attempts),
+		)
+
+		if recordErr := w.repository.RecordFailure(
 			ctx,
 			outboxEvent.ID,
 			err.Error(),
-		)
-
-		if outboxEvent.Attempts+1 >= maxPublishAttempts {
-			_ = w.repository.MarkFailed(
-				ctx,
-				outboxEvent.ID,
-				err.Error(),
+			nextAttemptAt,
+		); recordErr != nil {
+			w.logger.Error(
+				"failed to record outbox publishing failure",
+				"event_id",
+				outboxEvent.EventID,
+				"error",
+				recordErr,
 			)
 		}
 
@@ -126,4 +156,37 @@ func (w *OutboxWorker) processEvent(
 			err,
 		)
 	}
+}
+
+func (w *OutboxWorker) markFailed(
+	ctx context.Context,
+	event domain.OutboxEvent,
+	reason string,
+) {
+	if err := w.repository.MarkFailed(
+		ctx,
+		event.ID,
+		reason,
+	); err != nil {
+		w.logger.Error(
+			"failed to mark outbox event as failed",
+			"event_id",
+			event.EventID,
+			"error",
+			err,
+		)
+	}
+}
+
+func retryDelay(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+
+	delay := baseRetryDelay * time.Duration(1<<attempt)
+	if delay > maxRetryDelay {
+		return maxRetryDelay
+	}
+
+	return delay
 }

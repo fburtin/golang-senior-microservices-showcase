@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/domain"
-
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -29,30 +28,73 @@ func NewMongoOutboxRepository(
 	}
 }
 
-func (r *MongoOutboxRepository) FindPending(
+func (r *MongoOutboxRepository) ClaimPending(
 	ctx context.Context,
+	workerID string,
 	limit int64,
 ) ([]domain.OutboxEvent, error) {
-	filter := bson.D{
-		{Key: "status", Value: domain.OutboxPending},
-	}
+	now := time.Now().UTC()
+	events := make([]domain.OutboxEvent, 0, limit)
 
-	findOptions := options.Find().
-		SetLimit(limit).
-		SetSort(bson.D{
-			{Key: "createdAt", Value: 1},
-		})
+	for int64(len(events)) < limit {
+		filter := bson.D{
+			{Key: "status", Value: domain.OutboxPending},
+			{
+				Key: "$or",
+				Value: bson.A{
+					bson.D{
+						{
+							Key: "nextAttemptAt",
+							Value: bson.D{
+								{Key: "$exists", Value: false},
+							},
+						},
+					},
+					bson.D{
+						{
+							Key: "nextAttemptAt",
+							Value: bson.D{
+								{Key: "$lte", Value: now},
+							},
+						},
+					},
+				},
+			},
+		}
 
-	cursor, err := r.collection.Find(ctx, filter, findOptions)
-	if err != nil {
-		return nil, fmt.Errorf("find pending outbox events: %w", err)
-	}
-	defer cursor.Close(ctx)
+		update := bson.D{
+			{
+				Key: "$set",
+				Value: bson.D{
+					{Key: "status", Value: domain.OutboxProcessing},
+					{Key: "lockedAt", Value: now},
+					{Key: "lockedBy", Value: workerID},
+				},
+			},
+		}
 
-	events := make([]domain.OutboxEvent, 0)
+		findOptions := options.FindOneAndUpdate().
+			SetSort(bson.D{{Key: "createdAt", Value: 1}}).
+			SetReturnDocument(options.After)
 
-	if err := cursor.All(ctx, &events); err != nil {
-		return nil, fmt.Errorf("decode outbox events: %w", err)
+		var event domain.OutboxEvent
+
+		err := r.collection.
+			FindOneAndUpdate(ctx, filter, update, findOptions).
+			Decode(&event)
+
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			break
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf(
+				"claim pending outbox event: %w",
+				err,
+			)
+		}
+
+		events = append(events, event)
 	}
 
 	return events, nil
@@ -63,6 +105,11 @@ func (r *MongoOutboxRepository) MarkPublished(
 	id string,
 ) error {
 	now := time.Now().UTC()
+
+	filter := bson.D{
+		{Key: "id", Value: id},
+		{Key: "status", Value: domain.OutboxProcessing},
+	}
 
 	update := bson.D{
 		{
@@ -76,18 +123,27 @@ func (r *MongoOutboxRepository) MarkPublished(
 			Key: "$unset",
 			Value: bson.D{
 				{Key: "lastError", Value: ""},
+				{Key: "lockedAt", Value: ""},
+				{Key: "lockedBy", Value: ""},
+				{Key: "nextAttemptAt", Value: ""},
 			},
 		},
 	}
 
-	return r.updateByID(ctx, id, update)
+	return r.updateOne(ctx, filter, update)
 }
 
 func (r *MongoOutboxRepository) RecordFailure(
 	ctx context.Context,
 	id string,
 	reason string,
+	nextAttemptAt time.Time,
 ) error {
+	filter := bson.D{
+		{Key: "id", Value: id},
+		{Key: "status", Value: domain.OutboxProcessing},
+	}
+
 	update := bson.D{
 		{
 			Key: "$inc",
@@ -98,12 +154,21 @@ func (r *MongoOutboxRepository) RecordFailure(
 		{
 			Key: "$set",
 			Value: bson.D{
+				{Key: "status", Value: domain.OutboxPending},
 				{Key: "lastError", Value: reason},
+				{Key: "nextAttemptAt", Value: nextAttemptAt},
+			},
+		},
+		{
+			Key: "$unset",
+			Value: bson.D{
+				{Key: "lockedAt", Value: ""},
+				{Key: "lockedBy", Value: ""},
 			},
 		},
 	}
 
-	return r.updateByID(ctx, id, update)
+	return r.updateOne(ctx, filter, update)
 }
 
 func (r *MongoOutboxRepository) MarkFailed(
@@ -111,6 +176,10 @@ func (r *MongoOutboxRepository) MarkFailed(
 	id string,
 	reason string,
 ) error {
+	filter := bson.D{
+		{Key: "id", Value: id},
+	}
+
 	update := bson.D{
 		{
 			Key: "$set",
@@ -119,9 +188,55 @@ func (r *MongoOutboxRepository) MarkFailed(
 				{Key: "lastError", Value: reason},
 			},
 		},
+		{
+			Key: "$unset",
+			Value: bson.D{
+				{Key: "lockedAt", Value: ""},
+				{Key: "lockedBy", Value: ""},
+				{Key: "nextAttemptAt", Value: ""},
+			},
+		},
 	}
 
-	return r.updateByID(ctx, id, update)
+	return r.updateOne(ctx, filter, update)
+}
+
+func (r *MongoOutboxRepository) ReleaseStaleLocks(
+	ctx context.Context,
+	staleBefore time.Time,
+) error {
+	filter := bson.D{
+		{Key: "status", Value: domain.OutboxProcessing},
+		{
+			Key: "lockedAt",
+			Value: bson.D{
+				{Key: "$lte", Value: staleBefore},
+			},
+		},
+	}
+
+	update := bson.D{
+		{
+			Key: "$set",
+			Value: bson.D{
+				{Key: "status", Value: domain.OutboxPending},
+			},
+		},
+		{
+			Key: "$unset",
+			Value: bson.D{
+				{Key: "lockedAt", Value: ""},
+				{Key: "lockedBy", Value: ""},
+			},
+		},
+	}
+
+	_, err := r.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("release stale outbox locks: %w", err)
+	}
+
+	return nil
 }
 
 func (r *MongoOutboxRepository) CreateIndexes(
@@ -131,10 +246,19 @@ func (r *MongoOutboxRepository) CreateIndexes(
 		{
 			Keys: bson.D{
 				{Key: "status", Value: 1},
+				{Key: "nextAttemptAt", Value: 1},
 				{Key: "createdAt", Value: 1},
 			},
 			Options: options.Index().
-				SetName("idx_outbox_status_created_at"),
+				SetName("idx_outbox_status_next_attempt_created_at"),
+		},
+		{
+			Keys: bson.D{
+				{Key: "status", Value: 1},
+				{Key: "lockedAt", Value: 1},
+			},
+			Options: options.Index().
+				SetName("idx_outbox_status_locked_at"),
 		},
 		{
 			Keys: bson.D{
@@ -154,18 +278,14 @@ func (r *MongoOutboxRepository) CreateIndexes(
 	return nil
 }
 
-func (r *MongoOutboxRepository) updateByID(
+func (r *MongoOutboxRepository) updateOne(
 	ctx context.Context,
-	id string,
+	filter bson.D,
 	update bson.D,
 ) error {
-	result, err := r.collection.UpdateOne(
-		ctx,
-		bson.D{{Key: "id", Value: id}},
-		update,
-	)
+	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		return err
+		return fmt.Errorf("update outbox event: %w", err)
 	}
 
 	if result.MatchedCount == 0 {

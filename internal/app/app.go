@@ -14,7 +14,7 @@ import (
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/repositories"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/services"
 	"github.com/fburtin/golang-senior-microservices-showcase/internal/workers"
-
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -42,11 +42,20 @@ func New() *App {
 	customerService := services.NewCustomerService(customerRepository)
 	customerHandler := handlers.NewCustomerHandler(customerService)
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown-host"
+	}
+
+	workerID := hostname + "-" + uuid.NewString()
+
 	outboxWorker := workers.NewOutboxWorker(
 		outboxRepository,
 		customerProducer,
 		appLogger,
 		5*time.Second,
+		workerID,
+		30*time.Second,
 	)
 
 	router := NewRouter(customerHandler, appLogger)
@@ -100,19 +109,34 @@ func (a *App) Run() {
 	}
 }
 
-func connectMongo(cfg config.Config, appLogger *slog.Logger) *mongo.Database {
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.MongoTimeout)
+func connectMongo(
+	cfg config.Config,
+	appLogger *slog.Logger,
+) *mongo.Database {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		cfg.MongoTimeout,
+	)
 	defer cancel()
 
-	mongoClient, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoURI))
+	mongoClient, err := mongo.Connect(
+		options.Client().ApplyURI(cfg.MongoURI),
+	)
 	if err != nil {
-		appLogger.Error("failed to connect to MongoDB", "error", err)
+		appLogger.Error(
+			"failed to connect to MongoDB",
+			"error",
+			err,
+		)
 		os.Exit(1)
 	}
 
-	err = mongoClient.Ping(ctx, nil)
-	if err != nil {
-		appLogger.Error("failed to ping MongoDB", "error", err)
+	if err := mongoClient.Ping(ctx, nil); err != nil {
+		appLogger.Error(
+			"failed to ping MongoDB",
+			"error",
+			err,
+		)
 		os.Exit(1)
 	}
 
