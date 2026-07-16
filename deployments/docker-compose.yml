@@ -108,5 +108,34 @@ services:
       kafka:
         condition: service_started
 
+  customer-consumer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: go-showcase-customer-consumer
+    command: ["./customer-consumer"]
+
+    restart: unless-stopped
+
+    environment:
+      MONGO_URI: "mongodb://mongo:27017/?replicaSet=rs0"
+      MONGO_DATABASE: "go_showcase"
+      MONGO_TIMEOUT_SECONDS: "10"
+
+      KAFKA_BROKER: "go-showcase-kafka:29092"
+      KAFKA_CUSTOMER_TOPIC: "customers.events"
+      KAFKA_GROUP_ID: "customer-consumer-group"
+
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mongo-init-replica:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_started
+        
 volumes:
   mongo-data:
+
+
+  
