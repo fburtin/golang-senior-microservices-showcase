@@ -13,21 +13,25 @@ type Config struct {
 	MongoTimeout       time.Duration
 	KafkaBroker        string
 	KafkaCustomerTopic string
+	KafkaGroupID       string
 }
 
 func Load() Config {
-	timeoutSeconds, err := strconv.Atoi(getEnv("MONGO_TIMEOUT_SECONDS", "10"))
+	timeoutSeconds, err := strconv.Atoi(
+		getEnv("MONGO_TIMEOUT_SECONDS", "10"),
+	)
 	if err != nil {
 		timeoutSeconds = 10
 	}
 
 	return Config{
 		Port:               getEnv("PORT", "8080"),
-		MongoURI:           getEnv("MONGO_URI", "mongodb://localhost:27017"),
+		MongoURI:           getEnv("MONGO_URI", "mongodb://localhost:27017/?replicaSet=rs0"),
 		MongoDatabase:      getEnv("MONGO_DATABASE", "go_showcase"),
 		MongoTimeout:       time.Duration(timeoutSeconds) * time.Second,
 		KafkaBroker:        getEnv("KAFKA_BROKER", "localhost:9092"),
 		KafkaCustomerTopic: getEnv("KAFKA_CUSTOMER_TOPIC", "customers.events"),
+		KafkaGroupID:       getEnv("KAFKA_GROUP_ID", "customer-consumer-group"),
 	}
 }
 

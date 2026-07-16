@@ -16,7 +16,7 @@ func NewProducer(broker, topic string) *Producer {
 		writer: &kafka.Writer{
 			Addr:     kafka.TCP(broker),
 			Topic:    topic,
-			Balancer: &kafka.LeastBytes{},
+			Balancer: &kafka.Hash{},
 		},
 	}
 }
@@ -25,16 +25,22 @@ func (p *Producer) PublishCustomerCreated(
 	ctx context.Context,
 	event CustomerCreatedEvent,
 ) error {
-
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
 
-	return p.writer.WriteMessages(ctx,
+	// The durable EventID is reused on every retry. Kafka remains at-least-once,
+	// while consumers use this key for durable deduplication.
+	return p.writer.WriteMessages(
+		ctx,
 		kafka.Message{
-			Key:   []byte(event.ID),
+			Key:   []byte(event.EventID),
 			Value: data,
+			Headers: []kafka.Header{
+				{Key: "event-id", Value: []byte(event.EventID)},
+				{Key: "event-type", Value: []byte(event.EventType)},
+			},
 		},
 	)
 }
