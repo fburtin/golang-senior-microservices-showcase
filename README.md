@@ -26,9 +26,9 @@ Current progress:
 - ✅ MongoDB Transactions
 - ✅ Kafka Producer
 - ✅ Kafka Consumer
-- 🚧 Atomic persistence of Customer and Outbox Event
-- ⏳ Background Outbox Publisher
-- ⏳ Retry Policy
-- ⏳ Idempotent Event Publishing
+- ✅ Atomic persistence of Customer and Outbox Event
+- ✅ Background Outbox Publisher
+- ✅ Retry Policy
+- 🚧 Idempotent Event Publishing
 
 The branch demonstrates the incremental implementation of the Transactional Outbox Pattern, a common approach used in distributed systems to guarantee reliable event publication while maintaining database consistency.
