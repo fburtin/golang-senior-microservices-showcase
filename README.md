@@ -366,6 +366,32 @@ processed_events
 
 ---
 
+## Kubernetes
+
+This project can be deployed locally using Docker Desktop Kubernetes or kind.
+
+Components:
+
+- Go API
+- MongoDB Replica Set
+- Kafka (KRaft)
+- Customer Consumer
+- PersistentVolumeClaim
+- Kubernetes Job to initialize MongoDB Replica Set
+
+Flow:
+
+Client
+→ API
+→ MongoDB
+→ Kafka
+→ Idempotent Consumer
+→ MongoDB (processed_events)
+
+Deploy:
+
+kubectl apply -f k8s/
+
 # License
 
 MIT
