@@ -344,7 +344,6 @@ processed_events
 - Prometheus Metrics
 - Grafana Dashboard
 - Integration Tests (Testcontainers)
-- Kubernetes Deployment
 - Horizontal Consumer Scaling
 - Retry Policies
 - Stale Inbox Recovery
@@ -365,32 +364,104 @@ processed_events
 - Idempotent Consumer
 
 ---
+# Kubernetes Deployment
 
-## Kubernetes
+This project was migrated from a Docker Compose-based environment to a local Kubernetes environment using Docker Desktop Kubernetes.
 
-This project can be deployed locally using Docker Desktop Kubernetes or kind.
+The objective was to deploy and test the complete event-driven workflow with:
 
-Components:
-
-- Go API
-- MongoDB Replica Set
-- Kafka (KRaft)
-- Customer Consumer
+- Go REST API
+- MongoDB
+- MongoDB replica set
+- Persistent storage
+- Kafka
+- Kafka producer
+- Kafka consumer group
+- Idempotent consumer
+- Kubernetes Deployments
+- Kubernetes Services
+- Kubernetes Job
 - PersistentVolumeClaim
-- Kubernetes Job to initialize MongoDB Replica Set
 
-Flow:
+## What Was Implemented
+
+The following components were deployed to Kubernetes:
+
+```text
+Go API
+MongoDB
+MongoDB PersistentVolumeClaim
+MongoDB Service
+MongoDB Replica Set Initialization Job
+Kafka
+Kafka Service
+Customer Consumer
 
 Client
-→ API
-→ MongoDB
-→ Kafka
-→ Idempotent Consumer
-→ MongoDB (processed_events)
+  |
+  | POST /customers
+  v
+Go API
+  |
+  | Store customer
+  v
+MongoDB
+  |
+  | Publish customer.created event
+  v
+Kafka topic: customers.events
+  |
+  | Consumer group reads event
+  v
+customer-consumer
+  |
+  | Process event
+  v
+MongoDB processed_events collection
+  |
+  | Commit Kafka offset
+  v
+Consumer lag = 0
 
-Deploy:
++----------------------+
+|        Client        |
++----------+-----------+
+           |
+           | POST /customers
+           v
++----------------------+
+|       Go API         |
+| Kubernetes Deployment|
++----------+-----------+
+           |
+           | Save customer
+           v
++----------------------+
+|      MongoDB         |
+| Replica Set + PVC    |
++----------------------+
 
-kubectl apply -f k8s/
+           |
+           | Publish customer.created
+           v
++----------------------+
+|       Kafka          |
+| customers.events     |
++----------+-----------+
+           |
+           | customer-consumer-group
+           v
++----------------------+
+|  Customer Consumer   |
+| Idempotent Consumer  |
++----------+-----------+
+           |
+           | Save processed EventID
+           v
++----------------------+
+| processed_events     |
+| MongoDB collection   |
++----------------------+
 
 # License
 
