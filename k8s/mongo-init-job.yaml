@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-init-replica
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mongo-init
+          image: mongo:7
+          command:
+            - mongosh
+            - --host
+            - mongo-service
+            - --eval
+            - |
+              try {
+                rs.status()
+              } catch (e) {
+                rs.initiate({
+                  _id: "rs0",
+                  members: [
+                    {
+                      _id: 0,
+                      host: "mongo-service:27017"
+                    }
+                  ]
+                })
+              }

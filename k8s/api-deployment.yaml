@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: go-showcase-api
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: go-showcase-api
+
+  template:
+    metadata:
+      labels:
+        app: go-showcase-api
+
+    spec:
+      containers:
+        - name: api
+          image: go-showcase-api:v1
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 8080
+
+          env:
+            - name: PORT
+              value: "8080"
+
+            - name: MONGO_URI
+              value: "mongodb://mongo-service:27017/?replicaSet=rs0"
+
+            - name: MONGO_DATABASE
+              value: "go_showcase"
+
+            - name: MONGO_TIMEOUT_SECONDS
+              value: "10"
+
+            - name: KAFKA_BROKER
+              value: "kafka-service:9092"
+
+            - name: KAFKA_CUSTOMER_TOPIC
+              value: "customers.events"

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-consumer
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: customer-consumer
+
+  template:
+    metadata:
+      labels:
+        app: customer-consumer
+
+    spec:
+      containers:
+        - name: customer-consumer
+          image: go-showcase-consumer:v1
+          imagePullPolicy: Never
+
+          env:
+            - name: MONGO_URI
+              value: "mongodb://mongo-service:27017/?replicaSet=rs0"
+
+            - name: MONGO_DATABASE
+              value: "go_showcase"
+
+            - name: MONGO_TIMEOUT_SECONDS
+              value: "10"
+
+            - name: KAFKA_BROKER
+              value: "kafka-service:9092"
+
+            - name: KAFKA_CUSTOMER_TOPIC
+              value: "customers.events"
+
+            - name: KAFKA_GROUP_ID
+              value: "customer-consumer-group"
